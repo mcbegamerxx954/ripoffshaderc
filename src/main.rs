@@ -2,28 +2,23 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 use std::{
-    any::type_name,
     error::Error,
-    fmt::{Display, Pointer, Write},
+    fmt::{Display, Write},
     fs::{self, File},
     hash::Hasher,
-    io::{self, BufRead, BufReader, Read, Stdout},
-    os::unix::fs::OpenOptionsExt,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    str::{EscapeDefault, FromStr},
+    str::FromStr,
     time::Instant,
 };
 
 use clap::Parser;
-use glsl_lang_pp::{
-    exts::DEFAULT_REGISTRY,
-    processor::{
+use glsl_lang_pp::processor::{
         ProcessorState,
         event::Event,
         fs::{FileSystem, Processor, StdProcessor},
         nodes::{Define, DefineObject, ExtensionBehavior},
-    },
-};
+    };
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -39,7 +34,7 @@ struct Args {
     output: PathBuf,
 }
 
-use memchr::memmem::{self, Finder, find as mfind};
+use memchr::memmem::{self, Finder};
 enum Platform {
     Glsl(u32),
     Essl(u32),
@@ -80,7 +75,7 @@ fn main() {
     // println!("wah: {aah:?}");
     //    println!("cuh: {cuh:?}");
 }
-fn get_varyings(path: &Path, pstate: &ProcessorState) -> Result<Vec<Varying>, Box<dyn Error>> {
+fn get_varyings(path: &Path, _pstate: &ProcessorState) -> Result<Vec<Varying>, Box<dyn Error>> {
     let mut pp = StdProcessor::new();
     let parsed = pp.parse(path)?;
     let mut str = String::new();
@@ -129,7 +124,7 @@ fn cuh(
     };
     //    pp.parse(path)
     let time = Instant::now();
-    let mut sus = pp.parse_source(&file, filename);
+    let sus = pp.parse_source(&file, filename);
     println!("parse time: {}ms", time.elapsed().as_micros());
     let time = Instant::now();
     let iter = sus.process(cuh.clone().finish()).into_iter().flatten();
@@ -143,9 +138,9 @@ fn cuh(
                 }
             }
             Event::EnterFile {
-                file_id,
+                file_id: _,
                 path,
-                canonical_path,
+                canonical_path: _,
             } => {
                 println!("{:#?}", path);
             }
@@ -183,7 +178,7 @@ fn cuh(
     mem_buffer.clear();
     match shader_type {
         ShaderType::Vertex => {
-            if let Platform::Essl(mut number) = platform {
+            if let Platform::Essl(number) = platform {
                 //                let frag = Finder::new("gl_fragData[");
                 //                let fragcolor = Finder::new("gl_fragColor");
 
@@ -273,7 +268,7 @@ fn cuh(
     //
 
     let cuh = cuh.extension("GL_GOOGLE_include_directive", ExtensionBehavior::Enable);
-    let mut stage2 = pp.parse_source(&mem_buffer, &filename);
+    let stage2 = pp.parse_source(&mem_buffer, &filename);
     for sus in stage2.process(cuh.finish()).into_iter().flatten() {
         match sus {
             Event::Error { error, masked } => {
@@ -282,9 +277,9 @@ fn cuh(
                 }
             }
             Event::EnterFile {
-                file_id,
+                file_id: _,
                 path,
-                canonical_path,
+                canonical_path: _,
             } => {
                 // let thing = match File::open(&canonical_path) {
                 //     Ok(yay) => yay,
@@ -497,14 +492,14 @@ impl FileSystem for TurboStd {
     }
 
     fn read(&self, path: &Path) -> Result<std::borrow::Cow<'_, str>, Self::Error> {
-        let mut file = File::open(path)?;
+        let file = File::open(path)?;
         let cap = file
             .metadata()
             .map(|e| usize::try_from(e.len()).unwrap_or(0))?;
         let mut buf_file = BufReader::new(file);
         let mut line = String::new();
         let mut buf = String::with_capacity(cap);
-        let mut len = line.len();
+        let _len = line.len();
         loop {
             line.clear();
             match buf_file.read_line(&mut line) {
@@ -550,21 +545,21 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
     const SHADOW_SAMPLERS: [&str; 3] = ["shadow2D", "shadow2DProj", "sampler2DShadow"];
     const OES: [&str; 3] = ["dFdx", "dFdy", "fwidth"];
 
-    const _OES_texture_3D: [&str; 4] = [
+    const _OES_TEXTURE_3_D: [&str; 4] = [
         "texture3D",
         "texture3DProj",
         "texture3DLod",
         "texture3DProjLod",
     ];
 
-    const EXT_gpu_shader4: [&str; 3] = ["gl_VertexID", "gl_InstanceID", "texture2DLodOffset"];
+    const EXT_GPU_SHADER4: [&str; 3] = ["gl_VertexID", "gl_InstanceID", "texture2DLodOffset"];
 
     // To be use from vertex program require:
     // https://www.khronos.org/registry/OpenGL/extensions/ARB/ARB_shader_viewport_layer_array.txt
     // DX11 11_1 feature level
-    const ARB_shader_viewport_layer_array: [&str; 2] = ["gl_ViewportIndex", "gl_Layer"];
+    const ARB_SHADER_VIEWPORT_LAYER_ARRAY: [&str; 2] = ["gl_ViewportIndex", "gl_Layer"];
 
-    const ARB_gpu_shader5: [&str; 5] = [
+    const ARB_GPU_SHADER5: [&str; 5] = [
         "bitfieldReverse",
         "floatBitsToInt",
         "floatBitsToUint",
@@ -572,7 +567,7 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
         "uintBitsToFloat",
     ];
 
-    const ARB_shading_language_packing: [&str; 2] = ["packHalf2x16", "unpackHalf2x16"];
+    const ARB_SHADING_LANGUAGE_PACKING: [&str; 2] = ["packHalf2x16", "unpackHalf2x16"];
 
     const SUS: [&str; 11] = [
         "uint",
@@ -588,26 +583,26 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
         "textureSize",
     ];
 
-    const textureArray: [&str; 4] = [
+    const TEXTURE_ARRAY: [&str; 4] = [
         "sampler2DArray",
         "texture2DArray",
         "texture2DArrayLod",
         "shadow2DArray",
     ];
 
-    const ARB_texture_multisample: [&str; 3] = ["sampler2DMS", "isampler2DMS", "usampler2DMS"];
+    const ARB_TEXTURE_MULTISAMPLE: [&str; 3] = ["sampler2DMS", "isampler2DMS", "usampler2DMS"];
 
-    const texelFetch: [&str; 2] = ["texelFetch", "texelFetchOffset"];
+    const TEXEL_FETCH: [&str; 2] = ["texelFetch", "texelFetchOffset"];
 
-    const bitsToEncoders: [&str; 4] = [
+    const BITS_TO_ENCODERS: [&str; 4] = [
         "floatBitsToUint",
         "floatBitsToInt",
         "intBitsToFloat",
         "uintBitsToFloat",
     ];
 
-    const integerVecs: [&str; 6] = ["ivec2", "uvec2", "ivec3", "uvec3", "ivec4", "uvec4"];
-    const s_uniformTypeName: [(&str, &str); 4] = [
+    const INTEGER_VECS: [&str; 6] = ["ivec2", "uvec2", "ivec3", "uvec3", "ivec4", "uvec4"];
+    const S_UNIFORM_TYPE_NAME: [(&str, &str); 4] = [
         ("int", "int"),
         //		NULL,   NULL,
         ("vec4", "float4"),
@@ -615,14 +610,14 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
         ("mat4", "float4x4"),
     ];
     let mut buf = String::new();
-    let uses_lods = has_idents(&code, &ARB_LOD_IDENTS) || has_idents(&code, &EXT_LOD_IDENTS);
-    let uses_texel_fetch = has_idents(&code, &texelFetch);
-    let uses_texturems = has_idents(&code, &ARB_texture_multisample);
-    let uses_gpu_shader = has_idents(&code, &EXT_gpu_shader4);
-    let uses_texture_arr = has_idents(&code, &textureArray);
-    let uses_packing = has_idents(&code, &ARB_shading_language_packing);
-    let uses_viewport = has_idents(&code, &ARB_shader_viewport_layer_array);
-    let uses_int_vecs = has_idents(&code, &integerVecs);
+    let _uses_lods = has_idents(&code, &ARB_LOD_IDENTS) || has_idents(&code, &EXT_LOD_IDENTS);
+    let _uses_texel_fetch = has_idents(&code, &TEXEL_FETCH);
+    let _uses_texturems = has_idents(&code, &ARB_TEXTURE_MULTISAMPLE);
+    let _uses_gpu_shader = has_idents(&code, &EXT_GPU_SHADER4);
+    let uses_texture_arr = has_idents(&code, &TEXTURE_ARRAY);
+    let uses_packing = has_idents(&code, &ARB_SHADING_LANGUAGE_PACKING);
+    let _uses_viewport = has_idents(&code, &ARB_SHADER_VIEWPORT_LAYER_ARRAY);
+    let uses_int_vecs = has_idents(&code, &INTEGER_VECS);
     match platform {
         Platform::Essl(essl) => {
             let mut essl = *essl;
@@ -669,7 +664,7 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
             if uses_texture_arr && essl >= 300 {
                 buf.push_str("precision highp sampler2DArray;\n");
             }
-            if has_idents(&code, &ARB_gpu_shader5) {
+            if has_idents(&code, &ARB_GPU_SHADER5) {
                 buf.push_str("#extension GL_ARB_gpu_shader5 : enable\n");
             }
             if uses_packing {
@@ -686,7 +681,7 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
                 buf.push_str("#extension GL_EXT_texture_array : enable\n");
             }
             if essl == 100 {
-                let TRANSPOSE_POLYFILL: &str = concat!(
+                let _TRANSPOSE_POLYFILL: &str = concat!(
                     "mat2 transpose(mat2 _mtx)\n",
                     "mat2 transpose(mat2 _mtx)\n",
                     "{\n",
@@ -735,7 +730,7 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
 }
 fn has_idents(str: &str, idents: &[&str]) -> bool {
     for ident in idents {
-        if let Some(pos) = memmem::find(str.as_bytes(), ident.as_bytes()) {
+        if let Some(_pos) = memmem::find(str.as_bytes(), ident.as_bytes()) {
             return true;
         }
     }
