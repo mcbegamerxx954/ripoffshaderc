@@ -1,0 +1,15 @@
+[package]
+name = "ripoffshaderc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.56", features = ["derive"] }
+dhat = { version = "0.3.3", optional = true }
+# glsl-lang = { version = "0.8.1", features = ["glsl-lang-pp", "lexer-full"] }
+glsl-lang-pp = { version = "0.8.1", features = ["full"] }
+memchr = "2.7.6"
+murmur2 = "0.1.0"
+[features]
+# dhat = ["dep:dhat"]
+dhatgarbo= ["dep:dhat"]
