@@ -14,11 +14,11 @@ use std::{
 
 use clap::Parser;
 use glsl_lang_pp::processor::{
-        ProcessorState,
-        event::Event,
-        fs::{FileSystem, Processor, StdProcessor},
-        nodes::{Define, DefineObject, ExtensionBehavior},
-    };
+    ProcessorState,
+    event::Event,
+    fs::{FileSystem, ParsedFile, Processor, StdProcessor},
+    nodes::{Define, DefineObject, ExtensionBehavior},
+};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -28,13 +28,18 @@ struct Args {
     #[arg(short, long)]
     file: PathBuf,
     #[arg(short, long)]
+    shader_type: ShaderType,
+    #[arg(short, long)]
     varying: PathBuf,
+    #[arg(short, long, value_parser = clap::value_parser!(Platform))]
+    platform: Platform,
     includes: Vec<PathBuf>,
     #[arg(short, long)]
     output: PathBuf,
 }
 
 use memchr::memmem::{self, Finder};
+#[derive(Debug, Clone)]
 enum Platform {
     Glsl(u32),
     Essl(u32),
@@ -45,12 +50,67 @@ enum Platform {
     Pssl(u32),
     Wglsl(u32),
 }
-#[derive(PartialEq)]
+impl FromStr for Platform {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let save_me = match s {
+            "100_es" => Platform::Essl(100),
+            "300_es" => Platform::Essl(300),
+            "310_es" => Platform::Essl(310),
+            "320_es" => Platform::Essl(320),
+            "s_4_0" => Platform::Hlsl(400),
+            "s_5_0" => Platform::Hlsl(500),
+            "s_6_0" => Platform::Dxil(600),
+            "s_6_1" => Platform::Dxil(610),
+            "s_6_2" => Platform::Dxil(620),
+            "s_6_3" => Platform::Dxil(630),
+            "s_6_4" => Platform::Dxil(640),
+            "s_6_5" => Platform::Dxil(650),
+            "s_6_6" => Platform::Dxil(660),
+            "s_6_7" => Platform::Dxil(670),
+            "s_6_8" => Platform::Dxil(680),
+            "s_6_9" => Platform::Dxil(690),
+            "metal" => Platform::Metal(1210),
+            "metal10-10" => Platform::Metal(1010),
+            "metal11-10" => Platform::Metal(1110),
+            "metal12-10" => Platform::Metal(1210),
+            "metal20-11" => Platform::Metal(2011),
+            "metal21-11" => Platform::Metal(2111),
+            "metal22-11" => Platform::Metal(2211),
+            "metal23-14" => Platform::Metal(2314),
+            "metal24-14" => Platform::Metal(2414),
+            "metal30-14" => Platform::Metal(3014),
+            "metal31-14" => Platform::Metal(3114),
+            "pssl" => Platform::Pssl(0),
+            "spirv" => Platform::Spirv(1010),
+            "spirv10-10" => Platform::Spirv(1010),
+            "spirv13-11" => Platform::Spirv(1311),
+            "spirv14-11" => Platform::Spirv(1411),
+            "spirv15-12" => Platform::Spirv(1512),
+            "spirv16-13" => Platform::Spirv(1613),
+            "120" => Platform::Glsl(120),
+            "130" => Platform::Glsl(130),
+            "140" => Platform::Glsl(140),
+            "150" => Platform::Glsl(150),
+            "330" => Platform::Glsl(330),
+            "400" => Platform::Glsl(400),
+            "410" => Platform::Glsl(410),
+            "420" => Platform::Glsl(420),
+            "430" => Platform::Glsl(430),
+            "440" => Platform::Glsl(440),
+            "wgsl" => Platform::Wglsl(0),
+            _ => return Err("What rhe fuck".into()),
+        };
+        Ok(save_me)
+    }
+}
+#[derive(PartialEq, clap::ValueEnum, Clone, Debug)]
 enum ShaderType {
     Compute,
     Vertex,
     Fragment,
 }
+
 //use glsl_lang::lexer::full::fs::PreprocessorExt;
 use murmur2::murmur2a;
 
@@ -59,16 +119,17 @@ fn main() {
     let _profiler = dhat::Profiler::new_heap();
     println!("Hello, world!");
     let args = Args::parse();
-    let aah = args.file;
     let varyings = get_varyings(&args.varying, &ProcessorState::default()).unwrap();
-    //    ah.push(PathBuf::from(vaah));
-    //    let aah = Varying::from_line(&aah);
+    let mut procesor = Processor::new();
+    *procesor.system_paths_mut() = args.includes.clone();
     let cuh = cuh(
-        &Path::new(&aah),
-        Platform::Essl(310),
-        ShaderType::Vertex,
+        &args.file,
+        &args,
+        &mut procesor,
+        //        Platform::Essl(310),
+        //        ShaderType::Vertex,
         varyings,
-        args.includes,
+        // args.includes,
     );
     fs::write(args.output, &cuh).unwrap();
     //    huh(&aah);
@@ -94,64 +155,44 @@ fn get_varyings(path: &Path, _pstate: &ProcessorState) -> Result<Vec<Varying>, B
 }
 fn cuh(
     filename: &Path,
-    platform: Platform,
-    shader_type: ShaderType,
+    args: &Args,
+    preprocesor: &mut Processor<TurboStd>,
+    //    platform: Platform,
+    //    shader_type: ShaderType,
     varyings: Vec<Varying>,
-    incpaths: Vec<PathBuf>,
+    //    incpaths: Vec<PathBuf>,
 ) -> String {
     //        let aah = io::stdout()
     let time = Instant::now();
     let mut file = fs::read_to_string(filename).unwrap();
     println!("File read: {}ms", time.elapsed().as_micros());
     let mut mem_buffer = String::new();
-    let mut pp: Processor<TurboStd> = Processor::new();
     let mut cuh = ProcessorState::builder();
-    //        .extension("GL_GOOGLE_include_directive", ExtensionBehavior::Enable);
-    println!("{:?}", pp.system_paths());
-    std::mem::replace(pp.system_paths_mut(), incpaths);
-    println!("{:?}", pp.system_paths());
-    match platform {
+    match args.platform {
         Platform::Essl(version) => {
-            cuh = cuh.definition(version_def("BGFX_SHADER_LANGUAGE_GLSL", version));
-            cuh = cuh.definition(Define::object(
-                "BX_PLATFORM_ANDROID".into(),
-                DefineObject::one(),
-                false,
-            ));
-            cuh = cuh.definition(version_def("BGFX_SHADER_LANGUAGE_ESSL", version));
+            cuh = cuh.definition(set_def("BGFX_SHADER_LANGUAGE_GLSL", version));
+            cuh = cuh.definition(enable_def("BX_PLATFORM_ANDROID"));
+            cuh = cuh.definition(set_def("BGFX_SHADER_LANGUAGE_ESSL", version));
         }
         _ => todo!(),
     };
-    //    pp.parse(path)
+    let type_def = match args.shader_type {
+        ShaderType::Compute => enable_def("BGFX_SHADER_TYPE_COMPUTE"),
+        ShaderType::Vertex => enable_def("BGFX_SHADER_TYPE_VERTEX"),
+        ShaderType::Fragment => enable_def("BGFX_SHADER_TYPE_FRAGMENT"),
+    };
+    cuh = cuh.definition(type_def);
+    cuh = cuh.definition(set_def("M_PI", 3.1415926535897932384626433832795));
+    //    cuh = cuh.definition(definition)
+    //    preprocesor.parse(path)
     let time = Instant::now();
-    let sus = pp.parse_source(&file, filename);
+    let sus = preprocesor.parse_source(&file, filename);
     println!("parse time: {}ms", time.elapsed().as_micros());
     let time = Instant::now();
-    let iter = sus.process(cuh.clone().finish()).into_iter().flatten();
+    //    let iter = sus.process(cuh.clone().finish()).into_iter().flatten();
     println!("Processor iter init {}", time.elapsed().as_micros());
     let time = Instant::now();
-    for ev in iter {
-        match ev {
-            Event::Error { error, masked } => {
-                if !masked {
-                    println!("{}", error);
-                }
-            }
-            Event::EnterFile {
-                file_id: _,
-                path,
-                canonical_path: _,
-            } => {
-                println!("{:#?}", path);
-            }
-            Event::Token { token, masked } => {
-                if !masked {
-                    mem_buffer.push_str(token.text());
-                }
-            }
-            _ => {}
-        }
-    }
+    pp_to_token(sus, &mut mem_buffer, cuh.clone().finish());
     println!("cooy time: {}ms", time.elapsed().as_micros());
     // This is mostly the whole purpose of stage 1
     let mut input_varyings = Vec::new();
@@ -176,85 +217,74 @@ fn cuh(
     let has_fragcolor = find_undocumented(&mem_buffer, &Finder::new("gl_fragData")).is_some();
     let has_frag = find_undocumented(&mem_buffer, &Finder::new("gl_fragColor")).is_some();
     mem_buffer.clear();
-    match shader_type {
-        ShaderType::Vertex => {
-            if let Platform::Essl(number) = platform {
-                //                let frag = Finder::new("gl_fragData[");
-                //                let fragcolor = Finder::new("gl_fragColor");
-
-                // let uncomment_iter = source
-                //     .lines()
-                //     .into_iter()
-                //     .map(str::trim)
-                //     .filter(|e| e.starts_with("//"));
-                // if uncomment_iter
-                //     .clone()
-                //     .any(|e| frag.find(e.as_bytes()).is_some()
-                if number >= 300 {
-                    if has_frag {
-                        const COLOR_DEF: &str = concat!(
-                            "#define gl_FragColor bgfx_FragColor\n",
-                            "out mediump vec4 bgfx_FragColor;\n"
-                        );
-                        mem_buffer.push_str(COLOR_DEF);
-                    } else if has_fragcolor {
-                        const FRAG_DEF: &str = concat!(
-                            "#define gl_FragData bgfx_FragData\n",
-                            "out mediump vec4 bgfx_FragData[gl_MaxDrawBuffers];\n"
-                        );
-                        mem_buffer.push_str(FRAG_DEF);
-                    }
-                }
-                if shader_type == ShaderType::Vertex
-                    && input_varyings
-                        .iter()
-                        .any(|e| !ALLOWED_VERT_INPUTS.contains(&e.as_str()))
-                {
-                    todo!();
-                }
-                for huh in input_varyings
-                    .iter()
-                    .flat_map(|e| varyings.iter().find(|v| v.name.trim() == e.trim()))
-                {
-                    let name = &huh.name;
-
-                    if name.starts_with("a_") || name.starts_with("i_") {
-                        writeln!(
-                            &mut mem_buffer,
-                            "attribute {}{}{} {name};",
-                            OptFormat(huh.precision.as_deref()),
-                            OptFormat(huh.interpolation.as_deref()),
-                            huh.type_name,
-                        )
-                        .unwrap();
-                    } else {
-                        writeln!(
-                            &mut mem_buffer,
-                            "{}varying {}{} {name};",
-                            OptFormat(huh.interpolation.as_deref()),
-                            OptFormat(huh.precision.as_deref()),
-                            huh.type_name
-                        )
-                        .unwrap();
-                    }
-                }
-                for huh in output_varyings
-                    .iter()
-                    .flat_map(|e| varyings.iter().find(|v| v.name.trim() == e.trim()))
-                {
-                    writeln!(
-                        &mut mem_buffer,
-                        "{}varying {} {};",
-                        OptFormat(huh.interpolation.as_deref()),
-                        huh.type_name,
-                        huh.name
-                    )
-                    .unwrap();
-                }
+    // match shader_type {
+    //     ShaderType::Vertex => {
+    if let Platform::Essl(number) = args.platform {
+        if number >= 300 {
+            if has_frag {
+                const COLOR_DEF: &str = concat!(
+                    "#define gl_FragColor bgfx_FragColor\n",
+                    "out mediump vec4 bgfx_FragColor;\n"
+                );
+                mem_buffer.push_str(COLOR_DEF);
+            } else if has_fragcolor {
+                const FRAG_DEF: &str = concat!(
+                    "#define gl_FragData bgfx_FragData\n",
+                    "out mediump vec4 bgfx_FragData[gl_MaxDrawBuffers];\n"
+                );
+                mem_buffer.push_str(FRAG_DEF);
             }
         }
-        _ => todo!(),
+        if args.shader_type == ShaderType::Vertex
+            && input_varyings
+                .iter()
+                .any(|e| !ALLOWED_VERT_INPUTS.contains(&e.as_str()))
+        {
+            todo!();
+        }
+        for huh in input_varyings
+            .iter()
+            .flat_map(|e| varyings.iter().find(|v| v.name.trim() == e.trim()))
+        {
+            let name = &huh.name;
+
+            if name.starts_with("a_") || name.starts_with("i_") {
+                writeln!(
+                    &mut mem_buffer,
+                    "attribute {}{}{} {name};",
+                    OptFormat(huh.precision.as_deref()),
+                    OptFormat(huh.interpolation.as_deref()),
+                    huh.type_name,
+                )
+                .unwrap();
+            } else {
+                writeln!(
+                    &mut mem_buffer,
+                    "{}varying {}{} {name};",
+                    OptFormat(huh.interpolation.as_deref()),
+                    OptFormat(huh.precision.as_deref()),
+                    huh.type_name
+                )
+                .unwrap();
+            }
+        }
+        for huh in output_varyings
+            .iter()
+            .flat_map(|e| varyings.iter().find(|v| v.name.trim() == e.trim()))
+        {
+            writeln!(
+                &mut mem_buffer,
+                "{}varying {} {};",
+                OptFormat(huh.interpolation.as_deref()),
+                huh.type_name,
+                huh.name
+            )
+            .unwrap();
+        }
     }
+
+    // _ => todo!(),
+    // }
     println!("huhsize: {} \n{mem_buffer}", mem_buffer.len());
     mem_buffer.reserve(file.len());
     mem_buffer.extend(
@@ -268,73 +298,10 @@ fn cuh(
     //
 
     let cuh = cuh.extension("GL_GOOGLE_include_directive", ExtensionBehavior::Enable);
-    let stage2 = pp.parse_source(&mem_buffer, &filename);
-    for sus in stage2.process(cuh.finish()).into_iter().flatten() {
-        match sus {
-            Event::Error { error, masked } => {
-                if !masked {
-                    println!("{}", error);
-                }
-            }
-            Event::EnterFile {
-                file_id: _,
-                path,
-                canonical_path: _,
-            } => {
-                // let thing = match File::open(&canonical_path) {
-                //     Ok(yay) => yay,
-                //     Err(e) => {
-                //         println!("wtf:  {:?} {e}", canonical_path);
-                //         continue;
-                //     }
-                // };
-                // let Ok(metadata) = thing.metadata() else {
-                //     continue;
-                // };
-                // file.reserve(metadata.len() as usize);
-                println!("{:#?}", path);
-            }
-            Event::Token { token, masked } => {
-                if !masked {
-                    file.push_str(token.text());
-                }
-            }
-            _ => {}
-        }
-    }
-    do_transforms(&mut file, &shader_type, &platform);
-    // println!("finalll:{}", &file);
-    //    for hi in stage2.process(cuh) {}
-    // for token in
-    //     let huh: String = pp
-    //         .parse(Path::new(filename))
-    //         .unwrap()
-    //         .process(cuh.clone().finish()).tokenize(300, false, &DEFAULT_REGISTRY)
-    //         .into_iter()
-    //         .flatten()
-    //         .flat_map(|e| e.into_token())
-    //         .inspect(|e| print!("{}", e.text())).filter(|e| e.kind())
-    //         .map(|e| e.text_range())
-    //         .flat_map(|r| source.get(r.start().offset.into()..r.end().offset.into()))
-    //         .collect();
-    //     //        .take_while(|e| *e != "{")
-    //     //        .collect(); // pp.parse(Path::new("hmm")).unwrap().process(cuh.finish());
-    //    println!("{buf}");
+    let stage2 = preprocesor.parse_source(&mem_buffer, &filename);
+    pp_to_token(stage2, &mut file, cuh.finish());
+    do_transforms(&mut file, &args.shader_type, &args.platform);
     return file;
-
-    // file.insert_str(0, &source);
-    let mut str = String::with_capacity(file.capacity());
-    // // Sucks ass
-    // let huh = pp
-    //     .parse_source(&file, Path::new(filename))
-    //     .process(cuh.finish())
-    //     .into_iter()
-    //     .flatten()
-    //     .flat_map(|e| e.into_token())
-    //     .map(|e| e.text_range())
-    //     .flat_map(|r| source.get(r.start().offset.into()..r.end().offset.into()));
-    // str.extend(huh);
-    //    cuh.finish();
 }
 fn find_undocumented<'a>(haystack: &'a str, needle: &Finder) -> Option<&'a str> {
     let huh = needle.find(haystack.as_bytes())?;
@@ -346,10 +313,10 @@ fn find_undocumented<'a>(haystack: &'a str, needle: &Finder) -> Option<&'a str> 
         None
     }
 }
-fn version_def(name: &str, version: u32) -> Define {
+fn set_def(name: &str, thing: impl ToString) -> Define {
     Define::object(
         name.into(),
-        DefineObject::from_str(&version.to_string()).unwrap(),
+        DefineObject::from_str(&thing.to_string()).unwrap(),
         false,
     )
 }
@@ -644,7 +611,8 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
                         "precision highp int;\n"
                     ),
                     essl, in_out
-                );
+                )
+                .unwrap();
             }
             if essl < 300 && !has_idents(&code, &SHADOW_SAMPLERS) {
                 const SHADOW_TEX_DEF: &str = concat!(
@@ -722,6 +690,7 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
                     "		);\n",
                     "}\n"
                 );
+                buf.push_str(_TRANSPOSE_POLYFILL);
             }
         }
         _ => todo!(),
@@ -761,3 +730,41 @@ const ALLOWED_VERT_INPUTS: [&str; 23] = [
     "i_data3",
     "i_data4",
 ];
+fn pp_to_token<F: FileSystem>(pp: ParsedFile<'_, F>, buf: &mut String, pstate: ProcessorState) {
+    for sus in pp.process(pstate).into_iter().flatten() {
+        match sus {
+            Event::Error { error, masked } => {
+                if !masked {
+                    println!("{}", error);
+                }
+            }
+            Event::EnterFile {
+                file_id: _,
+                path,
+                canonical_path: _,
+            } => {
+                // let thing = match File::open(&canonical_path) {
+                //     Ok(yay) => yay,
+                //     Err(e) => {
+                //         println!("wtf:  {:?} {e}", canonical_path);
+                //         continue;
+                //     }
+                // };
+                // let Ok(metadata) = thing.metadata() else {
+                //     continue;
+                // };
+                // file.reserve(metadata.len() as usize);
+                println!("{:#?}", path);
+            }
+            Event::Token { token, masked } => {
+                if !masked {
+                    buf.push_str(token.text());
+                }
+            }
+            _ => {}
+        }
+    }
+}
+fn enable_def(name: &str) -> Define {
+    Define::object(name.into(), DefineObject::one(), false)
+}
