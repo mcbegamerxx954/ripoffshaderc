@@ -140,7 +140,7 @@ use murmur2::murmur2a;
 fn main() {
     #[cfg(feature = "dhatgarbo")]
     let _profiler = dhat::Profiler::new_heap();
-    println!("Hello, world!");
+    // println!("Hello, world!");
     let args = Args::parse();
     let varyings = get_varyings(&args.varyingdef, &ProcessorState::default()).unwrap();
     let mut procesor = Processor::new();
@@ -163,8 +163,8 @@ fn main() {
     );
     // fs::write(args.output, &cuh).unwrap();
     //    huh(&aah);
-    // println!("wah: {aah:?}");
-    //    println!("cuh: {cuh:?}");
+    // // println!("wah: {aah:?}");
+    // //    println!("cuh: {cuh:?}");
 }
 fn get_varyings(path: &Path, _pstate: &ProcessorState) -> Result<Vec<Varying>, Box<dyn Error>> {
     let mut pp = StdProcessor::new();
@@ -180,7 +180,7 @@ fn get_varyings(path: &Path, _pstate: &ProcessorState) -> Result<Vec<Varying>, B
             _ => {}
         }
     }
-    println!("{}", &str);
+    // println!("{}", &str);
     Ok(Varying::from_str(&str))
 }
 fn cuh(
@@ -196,7 +196,7 @@ fn cuh(
     //        let aah = io::stdout()
     let time = Instant::now();
     let mut file = fs::read_to_string(filename).unwrap();
-    println!("File read: {}ms", time.elapsed().as_micros());
+    // println!("File read: {}ms", time.elapsed().as_micros());
     let mut mem_buffer = String::new();
     let mut cuh = ProcessorState::builder();
     match args.profile {
@@ -221,13 +221,13 @@ fn cuh(
     //    preprocesor.parse(path)
     let time = Instant::now();
     let sus = preprocesor.parse_source(&file, filename);
-    println!("parse time: {}ms", time.elapsed().as_micros());
+    // println!("parse time: {}ms", time.elapsed().as_micros());
     let time = Instant::now();
     //    let iter = sus.process(cuh.clone().finish()).into_iter().flatten();
-    println!("Processor iter init {}", time.elapsed().as_micros());
+    // println!("Processor iter init {}", time.elapsed().as_micros());
     let time = Instant::now();
     pp_to_token(sus, &mut mem_buffer, cuh.clone().finish());
-    println!("cooy time: {}ms", time.elapsed().as_micros());
+    // println!("cooy time: {}ms", time.elapsed().as_micros());
     // This is mostly the whole purpose of stage 1
     let mut input_varyings = Vec::new();
     let mut input_hash = None;
@@ -249,9 +249,9 @@ fn cuh(
             // output_varyings.extend(iter);
         }
     }
-    // println!("{:?}", &input_varyings);
-    // println!("{:?}", &output_varyings);
-    // println!("{:?}", &varyings);
+    // // println!("{:?}", &input_varyings);
+    // // println!("{:?}", &output_varyings);
+    // // println!("{:?}", &varyings);
     let has_fragcolor = find_undocumented(&mem_buffer, &Finder::new("gl_fragData")).is_some();
     let has_frag = find_undocumented(&mem_buffer, &Finder::new("gl_fragColor")).is_some();
     mem_buffer.clear();
@@ -323,7 +323,7 @@ fn cuh(
 
     // _ => todo!(),
     // }
-    println!("huhsize: {} \n{mem_buffer}", mem_buffer.len());
+    // println!("huhsize: {} \n{mem_buffer}", mem_buffer.len());
     mem_buffer.reserve(file.len());
     mem_buffer.extend(
         file.split_inclusive('\n')
@@ -331,7 +331,7 @@ fn cuh(
     );
     //    mem_buffer.push_str(&file);
     file.clear();
-    // println!("{mem_buffer}");
+    // // println!("{mem_buffer}");
     //    mem_buffer.clear();
     const BGFX_BIN_VER: u8 = 11;
     match args.shader_type {
@@ -433,11 +433,11 @@ impl Varying {
                 break;
             }
         }
-        // println!(
+        //     // println!(
         //     "name: {name:?}, ty: {type_name:?}, precisi: {precision:?}, interpo: {interpolation:?}"
         // );
         let mut separator = iter.next()?;
-        // println!("sep: {separator}");
+        //     // println!("sep: {separator}");
         if separator == ":" {
             semantics = Some(iter.next()?.to_owned());
             separator = iter.next().unwrap_or(separator);
@@ -460,14 +460,14 @@ fn parse_varyingrefs(str: &str, vec: &mut Vec<String>) -> Option<u32> {
     // if let Some(strip) = str.strip_prefix("$input ") {
     let iter = str.split(",").map(str::trim).map(str::to_string);
     vec.extend(iter);
-    println!("{:?}", &vec);
+    // println!("{:?}", &vec);
     let mut hasher = HasherM2A::new(0);
     vec.sort_unstable();
     for sus in vec {
         hasher.write(&sus);
     }
     Some(hasher.finish())
-    //        println!("what: {}", hasher.finish());
+    // //        println!("what: {}", hasher.finish());
 }
 struct HasherM2A {
     seed: u32,
@@ -533,7 +533,7 @@ impl FileSystem for TurboStd {
             buf.push_str(trim);
             buf.push('\n');
         }
-        // println!("{buf}");
+        //     // println!("{buf}");
         Ok(buf.into())
     }
 }
@@ -787,7 +787,7 @@ fn pp_to_token<F: FileSystem>(pp: ParsedFile<'_, F>, buf: &mut String, pstate: P
         match sus {
             Event::Error { error, masked } => {
                 if !masked {
-                    println!("{}", error);
+                    //                 println!("{}", error);
                 }
             }
             Event::EnterFile {
@@ -798,7 +798,7 @@ fn pp_to_token<F: FileSystem>(pp: ParsedFile<'_, F>, buf: &mut String, pstate: P
                 // let thing = match File::open(&canonical_path) {
                 //     Ok(yay) => yay,
                 //     Err(e) => {
-                //         println!("wtf:  {:?} {e}", canonical_path);
+                //             //         println!("wtf:  {:?} {e}", canonical_path);
                 //         continue;
                 //     }
                 // };
@@ -806,7 +806,7 @@ fn pp_to_token<F: FileSystem>(pp: ParsedFile<'_, F>, buf: &mut String, pstate: P
                 //     continue;
                 // };
                 // file.reserve(metadata.len() as usize);
-                println!("{:#?}", path);
+                //             println!("{:#?}", path);
             }
             Event::Token { token, masked } => {
                 if !masked {
