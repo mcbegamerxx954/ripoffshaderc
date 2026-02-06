@@ -12,20 +12,20 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4      
-      - name: Generate a changelog
-        uses: orhun/git-cliff-action@v3
-        id: git-cliff
-        with:
-          config: cliff.toml
-          args: -vv --latest --strip header
-        env:
-          OUTPUT: CHANGES.md
-          GITHUB_REPO: ${{ github.repository }}
+      # - name: Generate a changelog
+      #   uses: orhun/git-cliff-action@v3
+      #   id: git-cliff
+      #   with:
+      #     config: cliff.toml
+      #     args: -vv --latest --strip header
+      #   env:
+      #     OUTPUT: CHANGES.md
+      #     GITHUB_REPO: ${{ github.repository }}
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          body: ${{ steps.git-cliff.outputs.content }}
+          body:  "Hii" #${{ steps.git-cliff.outputs.content }}
           # note you'll typically need to create a personal access token
           # with permissions to create releases in the other repo
           token: ${{ secrets.GITHUB_TOKEN }}
