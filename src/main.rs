@@ -30,17 +30,38 @@ struct Args {
     #[arg(short, long)]
     shader_type: ShaderType,
     #[arg(short, long)]
-    varying: PathBuf,
-    #[arg(short, long, value_parser = clap::value_parser!(Platform))]
+    varyingdef: PathBuf,
+    #[arg(short,long,value_parser = clap::value_parser!(Platform))]
     platform: Platform,
+    #[arg(short, long, value_parser = clap::value_parser!(Profile))]
+    profile: Profile,
+    #[arg(short,long,action = clap::ArgAction::Append)]
     includes: Vec<PathBuf>,
+    #[arg(short,long, value_delimiter=',',num_args=1..)]
+    define: Vec<String>,
     #[arg(short, long)]
     output: PathBuf,
 }
-
-use memchr::memmem::{self, Finder};
 #[derive(Debug, Clone)]
 enum Platform {
+    Android,
+    Ios,
+    Windows,
+}
+impl FromStr for Platform {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "android" => Ok(Self::Android),
+            "ios" => Ok(Self::Ios),
+            "windows" => Ok(Self::Windows),
+            _ => Err("wtf".into()),
+        }
+    }
+}
+use memchr::memmem::{self, Finder};
+#[derive(Debug, Clone)]
+enum Profile {
     Glsl(u32),
     Essl(u32),
     Hlsl(u32),
@@ -50,55 +71,55 @@ enum Platform {
     Pssl(u32),
     Wglsl(u32),
 }
-impl FromStr for Platform {
+impl FromStr for Profile {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let save_me = match s {
-            "100_es" => Platform::Essl(100),
-            "300_es" => Platform::Essl(300),
-            "310_es" => Platform::Essl(310),
-            "320_es" => Platform::Essl(320),
-            "s_4_0" => Platform::Hlsl(400),
-            "s_5_0" => Platform::Hlsl(500),
-            "s_6_0" => Platform::Dxil(600),
-            "s_6_1" => Platform::Dxil(610),
-            "s_6_2" => Platform::Dxil(620),
-            "s_6_3" => Platform::Dxil(630),
-            "s_6_4" => Platform::Dxil(640),
-            "s_6_5" => Platform::Dxil(650),
-            "s_6_6" => Platform::Dxil(660),
-            "s_6_7" => Platform::Dxil(670),
-            "s_6_8" => Platform::Dxil(680),
-            "s_6_9" => Platform::Dxil(690),
-            "metal" => Platform::Metal(1210),
-            "metal10-10" => Platform::Metal(1010),
-            "metal11-10" => Platform::Metal(1110),
-            "metal12-10" => Platform::Metal(1210),
-            "metal20-11" => Platform::Metal(2011),
-            "metal21-11" => Platform::Metal(2111),
-            "metal22-11" => Platform::Metal(2211),
-            "metal23-14" => Platform::Metal(2314),
-            "metal24-14" => Platform::Metal(2414),
-            "metal30-14" => Platform::Metal(3014),
-            "metal31-14" => Platform::Metal(3114),
-            "pssl" => Platform::Pssl(0),
-            "spirv" => Platform::Spirv(1010),
-            "spirv10-10" => Platform::Spirv(1010),
-            "spirv13-11" => Platform::Spirv(1311),
-            "spirv14-11" => Platform::Spirv(1411),
-            "spirv15-12" => Platform::Spirv(1512),
-            "spirv16-13" => Platform::Spirv(1613),
-            "120" => Platform::Glsl(120),
-            "130" => Platform::Glsl(130),
-            "140" => Platform::Glsl(140),
-            "150" => Platform::Glsl(150),
-            "330" => Platform::Glsl(330),
-            "400" => Platform::Glsl(400),
-            "410" => Platform::Glsl(410),
-            "420" => Platform::Glsl(420),
-            "430" => Platform::Glsl(430),
-            "440" => Platform::Glsl(440),
-            "wgsl" => Platform::Wglsl(0),
+            "100_es" => Profile::Essl(100),
+            "300_es" => Profile::Essl(300),
+            "310_es" => Profile::Essl(310),
+            "320_es" => Profile::Essl(320),
+            "s_4_0" => Profile::Hlsl(400),
+            "s_5_0" => Profile::Hlsl(500),
+            "s_6_0" => Profile::Dxil(600),
+            "s_6_1" => Profile::Dxil(610),
+            "s_6_2" => Profile::Dxil(620),
+            "s_6_3" => Profile::Dxil(630),
+            "s_6_4" => Profile::Dxil(640),
+            "s_6_5" => Profile::Dxil(650),
+            "s_6_6" => Profile::Dxil(660),
+            "s_6_7" => Profile::Dxil(670),
+            "s_6_8" => Profile::Dxil(680),
+            "s_6_9" => Profile::Dxil(690),
+            "metal" => Profile::Metal(1210),
+            "metal10-10" => Profile::Metal(1010),
+            "metal11-10" => Profile::Metal(1110),
+            "metal12-10" => Profile::Metal(1210),
+            "metal20-11" => Profile::Metal(2011),
+            "metal21-11" => Profile::Metal(2111),
+            "metal22-11" => Profile::Metal(2211),
+            "metal23-14" => Profile::Metal(2314),
+            "metal24-14" => Profile::Metal(2414),
+            "metal30-14" => Profile::Metal(3014),
+            "metal31-14" => Profile::Metal(3114),
+            "pssl" => Profile::Pssl(0),
+            "spirv" => Profile::Spirv(1010),
+            "spirv10-10" => Profile::Spirv(1010),
+            "spirv13-11" => Profile::Spirv(1311),
+            "spirv14-11" => Profile::Spirv(1411),
+            "spirv15-12" => Profile::Spirv(1512),
+            "spirv16-13" => Profile::Spirv(1613),
+            "120" => Profile::Glsl(120),
+            "130" => Profile::Glsl(130),
+            "140" => Profile::Glsl(140),
+            "150" => Profile::Glsl(150),
+            "330" => Profile::Glsl(330),
+            "400" => Profile::Glsl(400),
+            "410" => Profile::Glsl(410),
+            "420" => Profile::Glsl(420),
+            "430" => Profile::Glsl(430),
+            "440" => Profile::Glsl(440),
+            "wgsl" => Profile::Wglsl(0),
             _ => return Err("What rhe fuck".into()),
         };
         Ok(save_me)
@@ -119,7 +140,7 @@ fn main() {
     let _profiler = dhat::Profiler::new_heap();
     println!("Hello, world!");
     let args = Args::parse();
-    let varyings = get_varyings(&args.varying, &ProcessorState::default()).unwrap();
+    let varyings = get_varyings(&args.varyingdef, &ProcessorState::default()).unwrap();
     let mut procesor = Processor::new();
     *procesor.system_paths_mut() = args.includes.clone();
     let mut file = File::create(&args.output).unwrap();
@@ -127,7 +148,7 @@ fn main() {
         &args.file,
         &args,
         &mut procesor,
-        //        Platform::Essl(310),
+        //        Profile::Essl(310),
         //        ShaderType::Vertex,
         &mut file,
         varyings,
@@ -160,7 +181,7 @@ fn cuh(
     args: &Args,
     preprocesor: &mut Processor<TurboStd>,
     writer: &mut impl std::io::Write,
-    //    platform: Platform,
+    //    profile: Profile,
     //    shader_type: ShaderType,
     varyings: Vec<Varying>,
     //    incpaths: Vec<PathBuf>,
@@ -171,10 +192,10 @@ fn cuh(
     println!("File read: {}ms", time.elapsed().as_micros());
     let mut mem_buffer = String::new();
     let mut cuh = ProcessorState::builder();
-    match args.platform {
-        Platform::Essl(version) => {
+    match args.profile {
+        Profile::Essl(version) => {
             cuh = cuh.definition(set_def("BGFX_SHADER_LANGUAGE_GLSL", version));
-            cuh = cuh.definition(enable_def("BX_PLATFORM_ANDROID"));
+            cuh = cuh.definition(enable_def("BX_Profile_ANDROID"));
             cuh = cuh.definition(set_def("BGFX_SHADER_LANGUAGE_ESSL", version));
         }
         _ => todo!(),
@@ -186,6 +207,9 @@ fn cuh(
     };
     cuh = cuh.definition(type_def);
     cuh = cuh.definition(set_def("M_PI", 3.1415926535897932384626433832795));
+    for def in &args.define {
+        cuh = cuh.definition(enable_def(def))
+    }
     //    cuh = cuh.definition(definition)
     //    preprocesor.parse(path)
     let time = Instant::now();
@@ -226,7 +250,7 @@ fn cuh(
     mem_buffer.clear();
     // match shader_type {
     //     ShaderType::Vertex => {
-    if let Platform::Essl(number) = args.platform {
+    if let Profile::Essl(number) = args.profile {
         if number >= 300 {
             if has_frag {
                 const COLOR_DEF: &str = concat!(
@@ -311,7 +335,7 @@ fn cuh(
     let cuh = cuh.extension("GL_GOOGLE_include_directive", ExtensionBehavior::Enable);
     let stage2 = preprocesor.parse_source(&mem_buffer, &filename);
     pp_to_token(stage2, &mut file, cuh.finish());
-    do_transforms(&mut file, &args.shader_type, &args.platform);
+    do_transforms(&mut file, &args.shader_type, &args.profile);
     writer.write(&[0, 0]);
     writer.write(&(file.len() as u32).to_le_bytes());
     writer.write_all(file.as_bytes());
@@ -506,7 +530,7 @@ impl FileSystem for TurboStd {
         Ok(buf.into())
     }
 }
-fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
+fn do_transforms(code: &mut String, stage: &ShaderType, profile: &Profile) {
     const ARB_LOD_IDENTS: [&str; 13] = [
         "texture2DLod",
         "texture2DArrayLod", // BK - interacts with ARB_texture_array.
@@ -606,8 +630,8 @@ fn do_transforms(code: &mut String, stage: &ShaderType, platform: &Platform) {
     let uses_packing = has_idents(&code, &ARB_SHADING_LANGUAGE_PACKING);
     let _uses_viewport = has_idents(&code, &ARB_SHADER_VIEWPORT_LAYER_ARRAY);
     let uses_int_vecs = has_idents(&code, &INTEGER_VECS);
-    match platform {
-        Platform::Essl(essl) => {
+    match profile {
+        Profile::Essl(essl) => {
             let mut essl = *essl;
             if has_idents(&code, &["image2D"]) && essl < 310 {
                 essl = 310;
