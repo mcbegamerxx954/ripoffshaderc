@@ -122,16 +122,18 @@ fn main() {
     let varyings = get_varyings(&args.varying, &ProcessorState::default()).unwrap();
     let mut procesor = Processor::new();
     *procesor.system_paths_mut() = args.includes.clone();
+    let mut file = File::create(&args.file.with_file_name("what")).unwrap();
     let cuh = cuh(
         &args.file,
         &args,
         &mut procesor,
         //        Platform::Essl(310),
         //        ShaderType::Vertex,
+        &mut file,
         varyings,
         // args.includes,
     );
-    fs::write(args.output, &cuh).unwrap();
+    // fs::write(args.output, &cuh).unwrap();
     //    huh(&aah);
     // println!("wah: {aah:?}");
     //    println!("cuh: {cuh:?}");
@@ -157,11 +159,12 @@ fn cuh(
     filename: &Path,
     args: &Args,
     preprocesor: &mut Processor<TurboStd>,
+    writer: &mut impl std::io::Write,
     //    platform: Platform,
     //    shader_type: ShaderType,
     varyings: Vec<Varying>,
     //    incpaths: Vec<PathBuf>,
-) -> String {
+) {
     //        let aah = io::stdout()
     let time = Instant::now();
     let mut file = fs::read_to_string(filename).unwrap();
@@ -196,19 +199,23 @@ fn cuh(
     println!("cooy time: {}ms", time.elapsed().as_micros());
     // This is mostly the whole purpose of stage 1
     let mut input_varyings = Vec::new();
+    let mut input_hash = None;
     let mut output_varyings = Vec::new();
+    let mut output_hash = None;
     for line in mem_buffer
         .lines()
         .map(str::trim)
         .filter(|s| s.starts_with('$'))
     {
         if let Some(line) = line.strip_prefix("$input") {
-            let iter = line.split(',').map(str::trim).map(str::to_string);
-            input_varyings.extend(iter);
+            input_hash = parse_varyingrefs(line, &mut input_varyings);
+            // let iter = line.split(',').map(str::trim).map(str::to_string);
+            // input_varyings.extend(iter);
         }
         if let Some(line) = line.strip_prefix("$output") {
-            let iter = line.split(',').map(str::trim).map(str::to_string);
-            output_varyings.extend(iter);
+            output_hash = parse_varyingrefs(line, &mut output_varyings);
+            // let iter = line.split(',').map(str::trim).map(str::to_string);
+            // output_varyings.extend(iter);
         }
     }
     // println!("{:?}", &input_varyings);
@@ -295,13 +302,32 @@ fn cuh(
     file.clear();
     // println!("{mem_buffer}");
     //    mem_buffer.clear();
-    //
-
+    const BGFX_BIN_VER: u8 = 11;
+    match args.shader_type {
+        ShaderType::Vertex => write_header(b'F', output_hash, writer),
+        ShaderType::Fragment => write_header(b'F', input_hash, writer),
+        ShaderType::Compute => write_header(b'C', output_hash, writer),
+    };
     let cuh = cuh.extension("GL_GOOGLE_include_directive", ExtensionBehavior::Enable);
     let stage2 = preprocesor.parse_source(&mem_buffer, &filename);
     pp_to_token(stage2, &mut file, cuh.finish());
     do_transforms(&mut file, &args.shader_type, &args.platform);
-    return file;
+    writer.write(&[0, 0]);
+    writer.write(&(file.len() as u32).to_le_bytes());
+    writer.write_all(file.as_bytes());
+    writer.write(&[0]);
+    //    return file;
+}
+
+fn write_header<T: std::io::Write>(
+    typ: u8,
+    input_hash: Option<u32>,
+    // output_hash: Option<u32>,
+    writer: &mut T,
+) {
+    writer.write(&[typ, b'S', b'H', 11]);
+    writer.write(&input_hash.unwrap_or(0).to_le_bytes());
+    //    writer.write(&output_hash.unwrap_or(0).to_le_bytes());
 }
 fn find_undocumented<'a>(haystack: &'a str, needle: &Finder) -> Option<&'a str> {
     let huh = needle.find(haystack.as_bytes())?;
@@ -398,24 +424,19 @@ impl Varying {
         })
     }
 }
-fn huh(str: &str) -> Option<()> {
+fn parse_varyingrefs(str: &str, vec: &mut Vec<String>) -> Option<u32> {
     //    for line in str.lines() {
-    if let Some(strip) = str.strip_prefix("$input ") {
-        let mut vec: Vec<String> = strip
-            .split(",")
-            .map(str::trim)
-            .map(str::to_string)
-            .collect();
-        println!("{:?}", &vec);
-        let mut hasher = HasherM2A::new(0);
-        vec.sort_unstable();
-        for sus in vec {
-            hasher.write(&sus);
-        }
-        println!("what: {}", hasher.finish());
+    // if let Some(strip) = str.strip_prefix("$input ") {
+    let iter = str.split(",").map(str::trim).map(str::to_string);
+    vec.extend(iter);
+    println!("{:?}", &vec);
+    let mut hasher = HasherM2A::new(0);
+    vec.sort_unstable();
+    for sus in vec {
+        hasher.write(&sus);
     }
-    //  }
-    None
+    Some(hasher.finish())
+    //        println!("what: {}", hasher.finish());
 }
 struct HasherM2A {
     seed: u32,
