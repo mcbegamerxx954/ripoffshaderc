@@ -3,18 +3,19 @@
 static ALLOC: dhat::Alloc = dhat::Alloc;
 use std::{
     error::Error,
-    fmt::{Display, Write},
+    fmt::{Display, Pointer, Write},
     fs::{self, File},
     hash::Hasher,
     io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
     str::FromStr,
+    sync::mpsc::RecvTimeoutError,
     time::Instant,
 };
 
 use clap::Parser;
 use glsl_lang_pp::processor::{
-    ProcessorState,
+    ProcessorState, ProcessorStateBuilder,
     event::Event,
     fs::{FileSystem, ParsedFile, Processor, StdProcessor},
     nodes::{Define, DefineObject, ExtensionBehavior},
@@ -22,29 +23,36 @@ use glsl_lang_pp::processor::{
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(version,about, long_about = None,disable_version_flag = true)]
 struct Args {
     /// Name of the person to greet
     #[arg(short, long)]
     file: PathBuf,
     #[arg(short = 't', long = "type")]
     shader_type: ShaderType,
-    #[arg(short, long)]
-    varyingdef: PathBuf,
-    #[arg(short,long,value_parser = clap::value_parser!(Platform))]
+    #[arg(long)]
+    varyingdef: Option<PathBuf>,
+    // #[arg(
+    //     short = 'v',
+    //     long,
+    //     help = "shaderc, bgfx shader compiler tool, version 1.18.121"
+    // )]
+    #[arg(short,long,action = clap::ArgAction::Version)]
+    version: Option<bool>,
+    #[arg(long,value_parser = clap::value_parser!(Platform))]
     platform: Platform,
     #[arg(short, long, value_parser = clap::value_parser!(Profile))]
     profile: Profile,
     #[arg(short,long,action = clap::ArgAction::Append)]
     includes: Vec<PathBuf>,
-    #[arg(short,long, value_delimiter=',',num_args=1..)]
+    #[arg(short,long, value_delimiter=';',num_args=1..)]
     define: Vec<String>,
     #[arg(short, long)]
     stdout: bool,
     #[arg(short, long)]
     output: PathBuf,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Platform {
     Android,
     Ios,
@@ -142,7 +150,16 @@ fn main() {
     let _profiler = dhat::Profiler::new_heap();
     // println!("Hello, world!");
     let args = Args::parse();
-    let varyings = get_varyings(&args.varyingdef, &ProcessorState::default()).unwrap();
+    // if args.version {
+    //     println!("shaderc, bgfx shader compiler tool, version 1.18.121");
+    //     return;
+    // }
+    let defs = setup_defines(&args);
+    let varyings = if let Some(path) = &args.varyingdef {
+        get_varyings(&path, &defs.clone().finish()).unwrap()
+    } else {
+        Vec::new()
+    };
     let mut procesor = Processor::new();
     *procesor.system_paths_mut() = args.includes.clone();
 
@@ -158,6 +175,7 @@ fn main() {
         //        Profile::Essl(310),
         //        ShaderType::Vertex,
         &mut file,
+        defs,
         varyings,
         // args.includes,
     );
@@ -165,6 +183,31 @@ fn main() {
     //    huh(&aah);
     // // println!("wah: {aah:?}");
     // //    println!("cuh: {cuh:?}");
+}
+fn setup_defines(args: &Args) -> ProcessorStateBuilder {
+    let mut cuh = ProcessorState::builder();
+    match args.profile {
+        Profile::Essl(version) => {
+            cuh = cuh.definition(set_def("BGFX_SHADER_LANGUAGE_GLSL", version));
+            cuh = cuh.definition(enable_def("BX_Profile_ANDROID"));
+            cuh = cuh.definition(set_def("BGFX_SHADER_LANGUAGE_ESSL", version));
+        }
+        _ => todo!(),
+    };
+    let type_def = match args.shader_type {
+        ShaderType::Compute => enable_def("BGFX_SHADER_TYPE_COMPUTE"),
+        ShaderType::Vertex => enable_def("BGFX_SHADER_TYPE_VERTEX"),
+        ShaderType::Fragment => enable_def("BGFX_SHADER_TYPE_FRAGMENT"),
+    };
+    cuh = cuh.definition(type_def);
+    cuh = cuh.definition(set_def("M_PI", 3.1415926535897932384626433832795));
+    for def in &args.define {
+        cuh = cuh.definition(enable_def(def))
+    }
+    //    cuh = cuh.definition(definition)
+    //    preprocesor.parse(path)
+    //   let time = Instant::now();
+    cuh
 }
 fn get_varyings(path: &Path, _pstate: &ProcessorState) -> Result<Vec<Varying>, Box<dyn Error>> {
     let mut pp = StdProcessor::new();
@@ -188,6 +231,7 @@ fn cuh(
     args: &Args,
     preprocesor: &mut Processor<TurboStd>,
     writer: &mut impl std::io::Write,
+    mut state: ProcessorStateBuilder,
     //    profile: Profile,
     //    shader_type: ShaderType,
     varyings: Vec<Varying>,
@@ -202,35 +246,14 @@ fn cuh(
     let mut file = fs::read_to_string(filename).unwrap();
     // println!("File read: {}ms", time.elapsed().as_micros());
     let mut mem_buffer = String::new();
-    let mut cuh = ProcessorState::builder();
-    match args.profile {
-        Profile::Essl(version) => {
-            cuh = cuh.definition(set_def("BGFX_SHADER_LANGUAGE_GLSL", version));
-            cuh = cuh.definition(enable_def("BX_Profile_ANDROID"));
-            cuh = cuh.definition(set_def("BGFX_SHADER_LANGUAGE_ESSL", version));
-        }
-        _ => todo!(),
-    };
-    let type_def = match args.shader_type {
-        ShaderType::Compute => enable_def("BGFX_SHADER_TYPE_COMPUTE"),
-        ShaderType::Vertex => enable_def("BGFX_SHADER_TYPE_VERTEX"),
-        ShaderType::Fragment => enable_def("BGFX_SHADER_TYPE_FRAGMENT"),
-    };
-    cuh = cuh.definition(type_def);
-    cuh = cuh.definition(set_def("M_PI", 3.1415926535897932384626433832795));
-    for def in &args.define {
-        cuh = cuh.definition(enable_def(def))
-    }
-    //    cuh = cuh.definition(definition)
-    //    preprocesor.parse(path)
-    let time = Instant::now();
+
     let sus = preprocesor.parse_source(&file, filename);
     // println!("parse time: {}ms", time.elapsed().as_micros());
     let time = Instant::now();
     //    let iter = sus.process(cuh.clone().finish()).into_iter().flatten();
     // println!("Processor iter init {}", time.elapsed().as_micros());
     let time = Instant::now();
-    pp_to_token(sus, &mut mem_buffer, cuh.clone().finish());
+    pp_to_token(sus, &mut mem_buffer, state.clone().finish());
     // println!("cooy time: {}ms", time.elapsed().as_micros());
     // This is mostly the whole purpose of stage 1
     let mut input_varyings = Vec::new();
@@ -343,9 +366,9 @@ fn cuh(
         ShaderType::Fragment => write_header(b'F', input_hash, writer),
         ShaderType::Compute => write_header(b'C', output_hash, writer),
     };
-    let cuh = cuh.extension("GL_GOOGLE_include_directive", ExtensionBehavior::Enable);
+    let state = state.extension("GL_GOOGLE_include_directive", ExtensionBehavior::Enable);
     let stage2 = preprocesor.parse_source(&mem_buffer, &filename);
-    pp_to_token(stage2, &mut file, cuh.finish());
+    pp_to_token(stage2, &mut file, state.finish());
     do_transforms(&mut file, &args.shader_type, &args.profile);
     writer.write(&[0, 0]);
     writer.write(&(file.len() as u32).to_le_bytes());
