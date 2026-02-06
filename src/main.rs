@@ -194,6 +194,10 @@ fn cuh(
     //    incpaths: Vec<PathBuf>,
 ) {
     //        let aah = io::stdout()
+    if args.platform != Platform::Android {
+        eprintln!("We dont support ur platform yet");
+        return;
+    }
     let time = Instant::now();
     let mut file = fs::read_to_string(filename).unwrap();
     // println!("File read: {}ms", time.elapsed().as_micros());
