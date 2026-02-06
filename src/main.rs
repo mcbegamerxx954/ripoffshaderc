@@ -787,7 +787,7 @@ fn pp_to_token<F: FileSystem>(pp: ParsedFile<'_, F>, buf: &mut String, pstate: P
         match sus {
             Event::Error { error, masked } => {
                 if !masked {
-                    //                 println!("{}", error);
+                    eprintln!("{}", error);
                 }
             }
             Event::EnterFile {
