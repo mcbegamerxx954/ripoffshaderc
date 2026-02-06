@@ -6,7 +6,7 @@ use std::{
     fmt::{Display, Write},
     fs::{self, File},
     hash::Hasher,
-    io::{BufRead, BufReader},
+    io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
     str::FromStr,
     time::Instant,
@@ -27,7 +27,7 @@ struct Args {
     /// Name of the person to greet
     #[arg(short, long)]
     file: PathBuf,
-    #[arg(short, long)]
+    #[arg(short = 't', long = "type")]
     shader_type: ShaderType,
     #[arg(short, long)]
     varyingdef: PathBuf,
@@ -39,6 +39,8 @@ struct Args {
     includes: Vec<PathBuf>,
     #[arg(short,long, value_delimiter=',',num_args=1..)]
     define: Vec<String>,
+    #[arg(short, long)]
+    stdout: bool,
     #[arg(short, long)]
     output: PathBuf,
 }
@@ -143,7 +145,12 @@ fn main() {
     let varyings = get_varyings(&args.varyingdef, &ProcessorState::default()).unwrap();
     let mut procesor = Processor::new();
     *procesor.system_paths_mut() = args.includes.clone();
-    let mut file = File::create(&args.output).unwrap();
+
+    let mut file: &mut dyn std::io::Write = if args.stdout {
+        &mut io::stdout()
+    } else {
+        &mut File::create(&args.output).unwrap()
+    };
     let cuh = cuh(
         &args.file,
         &args,
