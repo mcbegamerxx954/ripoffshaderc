@@ -122,7 +122,7 @@ fn main() {
     let varyings = get_varyings(&args.varying, &ProcessorState::default()).unwrap();
     let mut procesor = Processor::new();
     *procesor.system_paths_mut() = args.includes.clone();
-    let mut file = File::create(&args.file.with_file_name("what")).unwrap();
+    let mut file = File::create(&args.output).unwrap();
     let cuh = cuh(
         &args.file,
         &args,
