@@ -3,22 +3,25 @@
 static ALLOC: dhat::Alloc = dhat::Alloc;
 use std::{
     error::Error,
-    fmt::{Display, Pointer, Write},
+    fmt::Display,
+    fmt::Write,
     fs::{self, File},
-    hash::Hasher,
     io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
     str::FromStr,
-    sync::mpsc::RecvTimeoutError,
     time::Instant,
 };
 
+use anyhow::bail;
 use clap::Parser;
-use glsl_lang_pp::processor::{
-    ProcessorState, ProcessorStateBuilder,
-    event::Event,
-    fs::{FileSystem, ParsedFile, Processor, StdProcessor},
-    nodes::{Define, DefineObject, ExtensionBehavior},
+use glsl_lang_pp::{
+    processor::{
+        ProcessorState, ProcessorStateBuilder,
+        event::Event,
+        fs::{FileSystem, ParsedFile, Processor, StdProcessor},
+        nodes::{Define, DefineObject, ExtensionBehavior},
+    },
+    types::Token,
 };
 
 /// Simple program to greet a person
@@ -231,31 +234,16 @@ fn cuh(
     args: &Args,
     preprocesor: &mut Processor<TurboStd>,
     writer: &mut impl std::io::Write,
-    mut state: ProcessorStateBuilder,
-    //    profile: Profile,
-    //    shader_type: ShaderType,
+    state: ProcessorStateBuilder,
     varyings: Vec<Varying>,
-    //    incpaths: Vec<PathBuf>,
-) {
-    //        let aah = io::stdout()
+) -> Result<(), anyhow::Error> {
     if args.platform != Platform::Android {
-        eprintln!("We dont support ur platform yet");
-        return;
+        bail!("We dont support ur platform yet")
     }
-    let time = Instant::now();
-    let mut file = fs::read_to_string(filename).unwrap();
-    // println!("File read: {}ms", time.elapsed().as_micros());
+    let mut file = fs::read_to_string(filename)?;
     let mut mem_buffer = String::new();
-
     let sus = preprocesor.parse_source(&file, filename);
-    // println!("parse time: {}ms", time.elapsed().as_micros());
-    let time = Instant::now();
-    //    let iter = sus.process(cuh.clone().finish()).into_iter().flatten();
-    // println!("Processor iter init {}", time.elapsed().as_micros());
-    let time = Instant::now();
     pp_to_token(sus, &mut mem_buffer, state.clone().finish());
-    // println!("cooy time: {}ms", time.elapsed().as_micros());
-    // This is mostly the whole purpose of stage 1
     let mut input_varyings = Vec::new();
     let mut input_hash = None;
     let mut output_varyings = Vec::new();
@@ -267,23 +255,14 @@ fn cuh(
     {
         if let Some(line) = line.strip_prefix("$input") {
             input_hash = parse_varyingrefs(line, &mut input_varyings);
-            // let iter = line.split(',').map(str::trim).map(str::to_string);
-            // input_varyings.extend(iter);
         }
         if let Some(line) = line.strip_prefix("$output") {
             output_hash = parse_varyingrefs(line, &mut output_varyings);
-            // let iter = line.split(',').map(str::trim).map(str::to_string);
-            // output_varyings.extend(iter);
         }
     }
-    // // println!("{:?}", &input_varyings);
-    // // println!("{:?}", &output_varyings);
-    // // println!("{:?}", &varyings);
     let has_fragcolor = find_undocumented(&mem_buffer, &Finder::new("gl_fragData")).is_some();
     let has_frag = find_undocumented(&mem_buffer, &Finder::new("gl_fragColor")).is_some();
     mem_buffer.clear();
-    // match shader_type {
-    //     ShaderType::Vertex => {
     if let Profile::Essl(number) = args.profile {
         if number >= 300 {
             if has_frag {
@@ -305,7 +284,7 @@ fn cuh(
                 .iter()
                 .any(|e| !ALLOWED_VERT_INPUTS.contains(&e.as_str()))
         {
-            todo!();
+            bail!("invalid inputs in vertex, the allowed inputs are: {ALLOWED_VERT_INPUTS:?}")
         }
         for huh in input_varyings
             .iter()
@@ -320,8 +299,7 @@ fn cuh(
                     OptFormat(huh.precision.as_deref()),
                     OptFormat(huh.interpolation.as_deref()),
                     huh.type_name,
-                )
-                .unwrap();
+                )?
             } else {
                 writeln!(
                     &mut mem_buffer,
@@ -329,8 +307,7 @@ fn cuh(
                     OptFormat(huh.interpolation.as_deref()),
                     OptFormat(huh.precision.as_deref()),
                     huh.type_name
-                )
-                .unwrap();
+                )?
             }
         }
         for huh in output_varyings
@@ -347,44 +324,47 @@ fn cuh(
             .unwrap();
         }
     }
-
-    // _ => todo!(),
-    // }
-    // println!("huhsize: {} \n{mem_buffer}", mem_buffer.len());
     mem_buffer.reserve(file.len());
     mem_buffer.extend(
         file.split_inclusive('\n')
             .filter(|s| !s.trim_start().starts_with('$')),
     );
-    //    mem_buffer.push_str(&file);
-    file.clear();
-    // // println!("{mem_buffer}");
-    //    mem_buffer.clear();
-    const BGFX_BIN_VER: u8 = 11;
+    // Useless waste of ram
+    drop(file);
     match args.shader_type {
-        ShaderType::Vertex => write_header(b'F', output_hash, writer),
-        ShaderType::Fragment => write_header(b'F', input_hash, writer),
-        ShaderType::Compute => write_header(b'C', output_hash, writer),
+        ShaderType::Vertex => write_header(b'F', 5, output_hash, writer)?,
+        ShaderType::Fragment => write_header(b'F', 5, input_hash, writer)?,
+        ShaderType::Compute => write_header(b'C', 5, output_hash, writer)?,
     };
     let state = state.extension("GL_GOOGLE_include_directive", ExtensionBehavior::Enable);
     let stage2 = preprocesor.parse_source(&mem_buffer, &filename);
-    pp_to_token(stage2, &mut file, state.finish());
-    do_transforms(&mut file, &args.shader_type, &args.profile);
-    writer.write(&[0, 0]);
-    writer.write(&(file.len() as u32).to_le_bytes());
-    writer.write_all(file.as_bytes());
-    writer.write(&[0]);
+    mem_buffer.clear();
+    pp_to_token(stage2, &mut mem_buffer, state.finish());
+    do_transforms(&mut mem_buffer, &args.shader_type, &args.profile);
+    write_footer(writer, mem_buffer.as_bytes())?;
+    Ok(())
     //    return file;
 }
-
+fn write_footer<T: std::io::Write>(writer: &mut T, file: &[u8]) -> io::Result<usize> {
+    let mut written = 0;
+    written += writer.write(&[0, 0])?;
+    written += writer.write(&(file.len() as u32).to_le_bytes())?;
+    writer.write_all(file)?;
+    written += file.len();
+    written += writer.write(&[0])?;
+    Ok(written)
+}
 fn write_header<T: std::io::Write>(
     typ: u8,
+    ver: u8,
     input_hash: Option<u32>,
     // output_hash: Option<u32>,
     writer: &mut T,
-) {
-    writer.write(&[typ, b'S', b'H', 11]);
-    writer.write(&input_hash.unwrap_or(0).to_le_bytes());
+) -> io::Result<usize> {
+    let mut written = 0;
+    written += writer.write(&[typ, b'S', b'H', ver])?;
+    written += writer.write(&input_hash.unwrap_or(0).to_le_bytes())?;
+    Ok(written)
     //    writer.write(&output_hash.unwrap_or(0).to_le_bytes());
 }
 fn find_undocumented<'a>(haystack: &'a str, needle: &Finder) -> Option<&'a str> {
@@ -418,7 +398,7 @@ impl Varying {
         string
             .lines()
             .into_iter()
-            //            .filter(|l| l.starts_with("//"))
+            .filter(|l| !l.starts_with("//"))
             .flat_map(Self::from_line)
             .collect()
     }
@@ -460,11 +440,7 @@ impl Varying {
                 break;
             }
         }
-        //     // println!(
-        //     "name: {name:?}, ty: {type_name:?}, precisi: {precision:?}, interpo: {interpolation:?}"
-        // );
         let mut separator = iter.next()?;
-        //     // println!("sep: {separator}");
         if separator == ":" {
             semantics = Some(iter.next()?.to_owned());
             separator = iter.next().unwrap_or(separator);
@@ -483,18 +459,14 @@ impl Varying {
     }
 }
 fn parse_varyingrefs(str: &str, vec: &mut Vec<String>) -> Option<u32> {
-    //    for line in str.lines() {
-    // if let Some(strip) = str.strip_prefix("$input ") {
     let iter = str.split(",").map(str::trim).map(str::to_string);
     vec.extend(iter);
-    // println!("{:?}", &vec);
     let mut hasher = HasherM2A::new(0);
     vec.sort_unstable();
     for sus in vec {
         hasher.write(&sus);
     }
     Some(hasher.finish())
-    // //        println!("what: {}", hasher.finish());
 }
 struct HasherM2A {
     seed: u32,
@@ -538,14 +510,17 @@ impl FileSystem for TurboStd {
     }
 
     fn read(&self, path: &Path) -> Result<std::borrow::Cow<'_, str>, Self::Error> {
+        //        let mut string = fs::read_to_string(path)?;
+        // json_strip_comments::strip_comments_in_place(&mut string);
         let file = File::open(path)?;
+        // let mutstring = String::new();
+
         let cap = file
             .metadata()
             .map(|e| usize::try_from(e.len()).unwrap_or(0))?;
         let mut buf_file = BufReader::new(file);
         let mut line = String::new();
         let mut buf = String::with_capacity(cap);
-        let _len = line.len();
         loop {
             line.clear();
             match buf_file.read_line(&mut line) {
@@ -656,7 +631,7 @@ fn do_transforms(code: &mut String, stage: &ShaderType, profile: &Profile) {
         ("mat4", "float4x4"),
     ];
     let mut buf = String::new();
-    let _uses_lods = has_idents(&code, &ARB_LOD_IDENTS) || has_idents(&code, &EXT_LOD_IDENTS);
+    let uses_lods = has_idents(&code, &ARB_LOD_IDENTS) || has_idents(&code, &EXT_LOD_IDENTS);
     let _uses_texel_fetch = has_idents(&code, &TEXEL_FETCH);
     let _uses_texturems = has_idents(&code, &ARB_TEXTURE_MULTISAMPLE);
     let _uses_gpu_shader = has_idents(&code, &EXT_GPU_SHADER4);
@@ -674,7 +649,7 @@ fn do_transforms(code: &mut String, stage: &ShaderType, profile: &Profile) {
                 essl = 300;
             }
 
-            let in_out = if *stage == ShaderType::Vertex {
+            let in_out = if *stage == ShaderType::Fragment {
                 "in"
             } else {
                 "out"
@@ -727,8 +702,20 @@ fn do_transforms(code: &mut String, stage: &ShaderType, profile: &Profile) {
             if uses_texture_arr {
                 buf.push_str("#extension GL_EXT_texture_array : enable\n");
             }
+            if uses_lods {
+                const LOD_EXTENSIONS: &str = concat!(
+                    "#extension GL_EXT_shader_texture_lod : enable\n",
+                    "#define texture2DLod      texture2DLodEXT\n",
+                    "#define texture2DGrad     texture2DGradEXT\n",
+                    "#define texture2DProjLod  texture2DProjLodEXT\n",
+                    "#define texture2DProjGrad texture2DProjGradEXT\n",
+                    "#define textureCubeLod    textureCubeLodEXT\n",
+                    "#define textureCubeGrad   textureCubeGradEXT\n"
+                );
+                buf.push_str(LOD_EXTENSIONS);
+            }
             if essl == 100 {
-                let _TRANSPOSE_POLYFILL: &str = concat!(
+                const TRANSPOSE_POLYFILL: &str = concat!(
                     "mat2 transpose(mat2 _mtx)\n",
                     "mat2 transpose(mat2 _mtx)\n",
                     "{\n",
@@ -769,7 +756,7 @@ fn do_transforms(code: &mut String, stage: &ShaderType, profile: &Profile) {
                     "		);\n",
                     "}\n"
                 );
-                buf.push_str(_TRANSPOSE_POLYFILL);
+                buf.push_str(TRANSPOSE_POLYFILL);
             }
         }
         _ => todo!(),
@@ -816,24 +803,6 @@ fn pp_to_token<F: FileSystem>(pp: ParsedFile<'_, F>, buf: &mut String, pstate: P
                 if !masked {
                     eprintln!("{}", error);
                 }
-            }
-            Event::EnterFile {
-                file_id: _,
-                path,
-                canonical_path: _,
-            } => {
-                // let thing = match File::open(&canonical_path) {
-                //     Ok(yay) => yay,
-                //     Err(e) => {
-                //             //         println!("wtf:  {:?} {e}", canonical_path);
-                //         continue;
-                //     }
-                // };
-                // let Ok(metadata) = thing.metadata() else {
-                //     continue;
-                // };
-                // file.reserve(metadata.len() as usize);
-                //             println!("{:#?}", path);
             }
             Event::Token { token, masked } => {
                 if !masked {
